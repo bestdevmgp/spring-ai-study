@@ -2,6 +2,24 @@ spring:
   application:
     name: spring-ai-study
 
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USERNAME}
+    password: ${DATABASE_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    show-sql: true
+
   ai:
     openai:
       api-key: ${OPENAI_API_KEY}
+    chat:
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: never

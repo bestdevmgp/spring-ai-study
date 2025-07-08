@@ -1,9 +1,16 @@
 package com.dev.springaistudy.domain.openai.service;
 
+import com.dev.springaistudy.domain.openai.entity.Chat;
+import com.dev.springaistudy.domain.openai.repository.ChatRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.audio.transcription.AudioTranscriptionPrompt;
 import org.springframework.ai.audio.transcription.AudioTranscriptionResponse;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.memory.ChatMemoryRepository;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -33,8 +40,11 @@ public class OpenAIService {
     private final OpenAiImageModel imageModel;
     private final OpenAiAudioSpeechModel audioSpeechModel;
     private final OpenAiAudioTranscriptionModel audioTranscriptionModel;
+    private final ChatMemoryRepository chatMemoryRepository;
+    private final ChatRepository chatRepository;
+    private final OpenAiChatModel openAiChatModel;
 
-    // 1. chatModel : response
+    // 1-1. chatModel : response
     public String generate(String text) {
         // 메시지
         SystemMessage systemMessage = new SystemMessage("");
@@ -54,13 +64,27 @@ public class OpenAIService {
         return response.getResult().getOutput().getText();
     }
 
-    // 2. chatModel : 실시간 response(stream)
+    // 1-2. chatModel : 실시간 response(stream)
     // Flux 자료형: 비동기 처리
     public Flux<String> generateStream(String text) {
+
+        ChatClient chatClient = ChatClient.create(openAiChatModel);
+
+        // 유저&페이지별 ChatMemory를 관리하기 위한 key (우선은 명시적으로)
+        String userId = "xxxjjhhh" + "_" + "3";
+
+        // 전체 대화 저장용
+        Chat userMessage = new Chat();
+        userMessage.setUserId(userId);
+        userMessage.setType(MessageType.USER);
+        userMessage.setContent(text);
+
         // 메시지
-        SystemMessage systemMessage = new SystemMessage("");
-        UserMessage userMessage = new UserMessage(text);
-        AssistantMessage assistantMessage = new AssistantMessage("");
+        ChatMemory chatMemory = MessageWindowChatMemory.builder()
+                .maxMessages(10) // 10개 이전 메시지까지 참조
+                .chatMemoryRepository(chatMemoryRepository)
+                .build();
+        chatMemory.add(userId, new UserMessage(text)); // 신규 메시지도 추가
 
         // 옵션
         OpenAiChatOptions options = OpenAiChatOptions.builder()
@@ -69,11 +93,30 @@ public class OpenAIService {
                 .build();
 
         // 프롬프트
-        Prompt prompt = new Prompt(List.of(systemMessage, userMessage, assistantMessage), options);
+        Prompt prompt = new Prompt(chatMemory.get(userId), options);
+
+        // 논블로킹으로 오는 응답 메시지를 저장할 임시 버퍼
+        StringBuilder responseBuffer = new StringBuilder();
 
         // 요청 및 응답
         return chatModel.stream(prompt)
-                .mapNotNull(response -> response.getResult().getOutput().getText());
+                .mapNotNull(response -> {
+                    String token = response.getResult().getOutput().getText();
+                    responseBuffer.append(token);
+                    return token;
+                })
+                .doOnComplete(() -> {
+
+                    chatMemory.add(userId, new AssistantMessage(responseBuffer.toString()));
+                    chatMemoryRepository.saveAll(userId, chatMemory.get(userId));
+
+                    // 전체 대화 저장용
+                    Chat assistantMessage = new Chat();
+                    assistantMessage.setUserId(userId);
+                    assistantMessage.setType(MessageType.ASSISTANT);
+                    assistantMessage.setContent(responseBuffer.toString());
+                    chatRepository.saveAll(List.of(userMessage, assistantMessage));
+                });
     }
 
     // 2. 임베딩 api 호출

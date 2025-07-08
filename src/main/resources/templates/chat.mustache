@@ -103,6 +103,24 @@
     const inputText = document.getElementById('inputText');
     const sendBtn = document.getElementById('sendBtn');
 
+    const userId = 'xxxjjhhh_3';
+
+    // 대화 기록 불러오기
+    async function loadChatHistory() {
+        const response = await fetch(`/chat/history/${userId}`, {
+            method: 'POST'
+        });
+        const messages = await response.json();
+        messages.forEach(msg => {
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('message', msg.type === 'USER' ? 'user' : 'bot');
+            msgDiv.textContent = msg.content;
+            chatDiv.appendChild(msgDiv);
+        });
+        chatDiv.scrollTop = chatDiv.scrollHeight;
+    }
+
+    // 채팅 API
     async function fetchStream(text) {
         const response = await fetch('/chat/stream', {
             method: 'POST',
@@ -150,6 +168,10 @@
     inputText.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') sendBtn.click();
     });
+
+    // 페이지 로드 시 대화 불러오기
+    window.addEventListener('DOMContentLoaded', loadChatHistory);
+
 </script>
 
 </body>
